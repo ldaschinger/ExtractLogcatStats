@@ -1,8 +1,5 @@
 """
-Extracts various values from Keysight Data Logger *.csv file like
-average current, average power, cumulative sum of energy used
-
-Possibility to plot the current and energy consumption with matplotlib
+Extracts data from several logcat files for call analysis and tracing
 """
 
 __author__ = "Lukas Daschinger"
@@ -10,18 +7,10 @@ __version__ = "1.0.1"
 __maintainer__ = "Lukas Daschinger"
 __email__ = "ldaschinger@student.ethz.ch"
 
-
-import getopt
-import math
 import os
-import sys
-
 import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
 import argparse
 import re
-
 
 def analyzeWebRTCStats(filepath):
     # print head including sampling interval
@@ -29,7 +18,6 @@ def analyzeWebRTCStats(filepath):
         head = [next(myfile) for x in range(6)]
     # print(head, "\n")
 
-    #02-15 10:21:28.803  2621  3794 I ExtendedACodec:   int32_t bitrate =
     # group 3 = hour
     # group 4 = minute
     # group 5 = second
@@ -44,15 +32,12 @@ def analyzeWebRTCStats(filepath):
     bitrateValues = []
 
     # get the last timetamp
+    # print(filepath)
     with open(filepath) as f:
         lines = f.readlines()
         last = lines[-1]
         #detect last line and get its timestamp
         for match in re.finditer(timestampRegex, last):
-            # print(match.group(3))
-            # print(match.group(4))
-            # print(match.group(5))
-            # print(match.group(6))
             lastTimestamp = (int(match.group(3)) * 3600000) + int(match.group(4)) * 60000 + int(match.group(5)) * 1000 + int(match.group(6))
 
     for i, line in enumerate(open(filepath)):
@@ -60,10 +45,6 @@ def analyzeWebRTCStats(filepath):
             # print('Found on line %s: %s' % (i + 1, match.group(1)))
             # now append it to the availableOutgoingBitrate list
             bitrateValues.append(match.group(9))
-            # print(match.group(3))
-            # print(match.group(4))
-            # print(match.group(5))
-            # print(match.group(6))
             timestamp = (int(match.group(3)) * 3600000) + int(match.group(4)) * 60000 + int(match.group(5)) * 1000 + int(match.group(6))
             timestamps_ms.append(timestamp)
 
@@ -90,42 +71,18 @@ def analyzeWebRTCStats(filepath):
     npArray = np.asarray(durations)
     npArrayDurations = npArray.astype(int)
 
-    # print(npArrayDurations)
-
+    # we do not want bitrates that are present for only a few seconds (the ones until ramp up is completed)
+    # we create new arrays with durations and bitrates which were present for over 4s
     npArrayConstantTimestamps = npArrayDurations[npArrayDurations > 4500]
     # print(npArrayConstantTimestamps)
     npArrayConstantBitrates = npArrayBitrates[npArrayDurations > 4500]
     # print(npArrayConstantBitrates)
 
-
-    # we do not want bitrates that are present for only a few seconds (the ones until ramp up is completed)
-    # we create new arrays with durations and bitrates which were present for over 4s
-
-    # print('average and stddev of bitrate found: ')
-    # weightedAverage = np.average(npArrayBitrates[fromSampleN:], weights=npArrayDurations[fromSampleN:])
     weightedAverage = np.average(npArrayBitrates, weights=npArrayDurations)
-    # print("\n\n" + filepath)
-    # print(weightedAverage)
-
-    # plt.plot(npArrayBitrates)
-    # plt.plot(npArrayDurations)
-    # plt.show()
-
-    #weighted avg by hand:
-    # total = sum(npArrayDurations*npArrayBitrates)
-    # average = total/(timestamps_ms[-1]-timestamps_ms[0])
 
     # calculate stddev weighted
     variance = np.average((npArrayBitrates - weightedAverage) ** 2, weights=npArrayDurations)
     # print(math.sqrt(variance))
-
-    # print(weighted_stddev(bitrateValues, durations))
-
-    # does not work like this since we need to weight bitrates
-    # npArray = np.asarray(bitrateValues)
-    # npArray = npArray.astype(int)
-    # print("\nAVERAGE bitrateValues: " + str(npArray.mean()))
-    # print("STDDEV bitrateValues: " + str(npArray.std()))
 
     return weightedAverage
 
@@ -157,12 +114,6 @@ def analyzeTestCustom(folderpath, bitrate, res1, fps1, codec1, res2="null", fps2
                 if extension == "" and item != ".DS_Store":
                     bitrateMeans[i].append(analyzeWebRTCStats(folderpaths[i] + "/" + item + "/" + "logcat.txt"))
 
-    # # if we have varying number of tests and therefore .csv files available we must find all in the folder
-    # for filename in os.listdir(folderpath1):
-    #     name, extension = os.path.splitext(filename)
-    #     if extension == ".csv":
-    #         mean1.append(analyzeLoggerData(folderpath1 + "/" + filename))
-    # npMean1 = np.asarray(mean1)
 
     npMeans = [np.empty([5]) for x in range(5)]
     for i in range(5):
@@ -170,6 +121,8 @@ def analyzeTestCustom(folderpath, bitrate, res1, fps1, codec1, res2="null", fps2
         if dictlist[i].get("res") != "null":
             npMeans[i] = np.asarray(bitrateMeans[i])
 
+    # put the bitrate in front of the values
+    print(bitrate + " " , end="", flush=True)
 
     for i in range(5):
         # if we have varying number of tests and therefore .csv files available we must find all in the folder
@@ -199,7 +152,48 @@ if __name__ == '__main__':
             dlog1.csv/dlog2.csv/dlog3.csv/dlog4.csv
     """
 
-    # # 30fps tests
+    ##################################################  30fps tests
+    # WITH 720p H264
+    # analyzeTestCustom(args.folderpath, bitrate="300", res1="_small_", fps1="30", codec1="H264",
+    #                   res2="_large_", fps2="30", codec2="H264", res3="_auto_", fps3="30", codec3="H264", res4="_auto720_", fps4="30", codec4="H264")
+    # analyzeTestCustom(args.folderpath, bitrate="600", res1="_small_", fps1="30", codec1="H264",
+    #                   res2="_large_", fps2="30", codec2="H264", res3="_auto_", fps3="30", codec3="H264", res4="_auto720_", fps4="30", codec4="H264")
+    # analyzeTestCustom(args.folderpath, bitrate="900", res1="_small_", fps1="30", codec1="H264",
+    #                   res2="_large_", fps2="30", codec2="H264", res3="_auto_", fps3="30", codec3="H264", res4="_auto720_", fps4="30", codec4="H264")
+    # analyzeTestCustom(args.folderpath, bitrate="1300", res1="_small_", fps1="30", codec1="H264",
+    #                   res2="_large_", fps2="30", codec2="H264", res3="_auto_", fps3="30", codec3="H264", res4="_auto720_", fps4="30", codec4="H264")
+    # analyzeTestCustom(args.folderpath, bitrate="1800", res1="_small_", fps1="30", codec1="H264",
+    #                   res2="_large_", fps2="30", codec2="H264", res3="_auto_", fps3="30", codec3="H264", res4="_auto720_", fps4="30", codec4="H264")
+    # analyzeTestCustom(args.folderpath, bitrate="2700", res1="_small_", fps1="30", codec1="H264",
+    #                   res2="_large_", fps2="30", codec2="H264", res3="_auto_", fps3="30", codec3="H264", res4="_auto720_", fps4="30", codec4="H264")
+    # analyzeTestCustom(args.folderpath, bitrate="4000", res1="_small_", fps1="30", codec1="H264",
+    #                   res2="_large_", fps2="30", codec2="H264", res3="_auto_", fps3="30", codec3="H264", res4="_auto720_", fps4="30", codec4="H264")
+    # analyzeTestCustom(args.folderpath, bitrate="4750", res1="_small_", fps1="30", codec1="H264",
+    #                   res2="_large_", fps2="30", codec2="H264", res3="_auto_", fps3="30", codec3="H264")
+    # analyzeTestCustom(args.folderpath, bitrate="6000", res1="_small_", fps1="30", codec1="H264",
+    #                   res2="_large_", fps2="30", codec2="H264", res3="_auto_", fps3="30", codec3="H264")
+
+
+    # WITH 720p VP8
+    # analyzeTestCustom(args.folderpath, bitrate="300", res1="_small_", fps1="30", codec1="VP8",
+    #                   res2="_large_", fps2="30", codec2="VP8", res3="_auto_", fps3="30", codec3="VP8", res4="_auto720_", fps4="30", codec4="VP8")
+    # analyzeTestCustom(args.folderpath, bitrate="600", res1="_small_", fps1="30", codec1="VP8",
+    #                   res2="_large_", fps2="30", codec2="VP8", res3="_auto_", fps3="30", codec3="VP8", res4="_auto720_", fps4="30", codec4="VP8")
+    # analyzeTestCustom(args.folderpath, bitrate="900", res1="_small_", fps1="30", codec1="VP8",
+    #                   res2="_large_", fps2="30", codec2="VP8", res3="_auto_", fps3="30", codec3="VP8", res4="_auto720_", fps4="30", codec4="VP8")
+    # analyzeTestCustom(args.folderpath, bitrate="1300", res1="_small_", fps1="30", codec1="VP8",
+    #                   res2="_large_", fps2="30", codec2="VP8", res3="_auto_", fps3="30", codec3="VP8", res4="_auto720_", fps4="30", codec4="VP8")
+    # analyzeTestCustom(args.folderpath, bitrate="1800", res1="_small_", fps1="30", codec1="VP8",
+    #                   res2="_large_", fps2="30", codec2="VP8", res3="_auto_", fps3="30", codec3="VP8", res4="_auto720_", fps4="30", codec4="VP8")
+    # analyzeTestCustom(args.folderpath, bitrate="2700", res1="_small_", fps1="30", codec1="VP8",
+    #                   res2="_large_", fps2="30", codec2="VP8", res3="_auto_", fps3="30", codec3="VP8", res4="_auto720_", fps4="30", codec4="VP8")
+    # analyzeTestCustom(args.folderpath, bitrate="4000", res1="_small_", fps1="30", codec1="VP8",
+    #                   res2="_large_", fps2="30", codec2="VP8", res3="_auto_", fps3="30", codec3="VP8", res4="_auto720_", fps4="30", codec4="VP8")
+    # analyzeTestCustom(args.folderpath, bitrate="4750", res1="_small_", fps1="30", codec1="VP8",
+    #                    res2="_auto_", fps2="30", codec2="VP8")
+
+
+    # WITHOUT 720p H264
     # analyzeTestCustom(args.folderpath, bitrate="300", res1="_small_", fps1="30", codec1="H264",
     #                   res2="_large_", fps2="30", codec2="H264", res3="_auto_", fps3="30", codec3="H264")
     # analyzeTestCustom(args.folderpath, bitrate="600", res1="_small_", fps1="30", codec1="H264",
@@ -219,7 +213,30 @@ if __name__ == '__main__':
     # analyzeTestCustom(args.folderpath, bitrate="6000", res1="_small_", fps1="30", codec1="H264",
     #                   res2="_large_", fps2="30", codec2="H264", res3="_auto_", fps3="30", codec3="H264")
 
-    # 15fps tests
+    ################################################# 15fps tests
+    # # WITH automatic 720p resolution H264
+    # analyzeTestCustom(args.folderpath, bitrate="600", res1="_small_", fps1="15", codec1="H264",
+    #                   res2="_large_", fps2="15", codec2="H264", res3="_auto_", fps3="30", codec3="H264",
+    #                   res4="_auto720_", fps4="30", codec4="H264")
+    # analyzeTestCustom(args.folderpath, bitrate="900", res1="_small_", fps1="15", codec1="H264",
+    #                   res2="_large_", fps2="15", codec2="H264", res3="_auto_", fps3="30", codec3="H264",
+    #                   res4="_auto720_", fps4="30", codec4="H264")
+    # analyzeTestCustom(args.folderpath, bitrate="1300", res1="_small_", fps1="15", codec1="H264",
+    #                   res2="_large_", fps2="15", codec2="H264", res3="_auto_", fps3="30", codec3="H264",
+    #                   res4="_auto720_", fps4="30", codec4="H264")
+    # analyzeTestCustom(args.folderpath, bitrate="1800", res1="_small_", fps1="15", codec1="H264",
+    #                   res2="_large_", fps2="15", codec2="H264", res3="_auto_", fps3="30", codec3="H264",
+    #                   res4="_auto720_", fps4="30", codec4="H264")
+    # analyzeTestCustom(args.folderpath, bitrate="2700", res1="_small_", fps1="15", codec1="H264",
+    #                   res2="_large_", fps2="15", codec2="H264", res3="_auto_", fps3="30", codec3="H264",
+    #                   res4="_auto720_", fps4="30", codec4="H264")
+    # analyzeTestCustom(args.folderpath, bitrate="4000", res1="_small_", fps1="15", codec1="H264",
+    #                   res2="_large_", fps2="15", codec2="H264", res3="_auto_", fps3="30", codec3="H264",
+    #                   res4="_auto720_", fps4="30", codec4="H264")
+    # analyzeTestCustom(args.folderpath, bitrate="6000", res1="_small_", fps1="15", codec1="H264",
+    #                   res2="_large_", fps2="15", codec2="H264", res3="_auto_", fps3="30", codec3="H264")
+
+    # WITHOUT automatic 720p resolution
     # analyzeTestCustom(args.folderpath, bitrate="600", res1="_small_", fps1="15", codec1="H264",
     #                   res2="_large_", fps2="15", codec2="H264", res3="_auto_", fps3="30", codec3="H264")
     # analyzeTestCustom(args.folderpath, bitrate="900", res1="_small_", fps1="15", codec1="H264",
@@ -236,7 +253,7 @@ if __name__ == '__main__':
     #                   res2="_large_", fps2="15", codec2="H264", res3="_auto_", fps3="30", codec3="H264")
 
 
-    # # VP8 tests
+    ################################################## # VP8 tests
     # analyzeTestCustom(args.folderpath, bitrate="900",
     #                   res1="_small_", fps1="30", codec1="VP8",
     #                   res2="_large_", fps2="30", codec2="VP8",
@@ -254,47 +271,71 @@ if __name__ == '__main__':
     #                   res2="_large_", fps2="30", codec2="VP8",
     #                   res3="_auto_", fps3="30", codec3="VP8")
 
-    # # VP8 vs H264 tests
-    # analyzeTestCustom(args.folderpath, bitrate="900",
-    #                   res1="_small_", fps1="30", codec1="H264",
-    #                   res2="_small_", fps2="30", codec2="VP8",
-    #                   res3="_large_", fps3="30", codec3="H264",
-    #                   res4="_large_", fps4="30", codec4="VP8")
-    # analyzeTestCustom(args.folderpath, bitrate="1800",
-    #                   res1="_small_", fps1="30", codec1="H264",
-    #                   res2="_small_", fps2="30", codec2="VP8",
-    #                   res3="_large_", fps3="30", codec3="H264",
-    #                   res4="_large_", fps4="30", codec4="VP8")
-    # analyzeTestCustom(args.folderpath, bitrate="4000",
-    #                   res1="_small_", fps1="30", codec1="H264",
-    #                   res2="_small_", fps2="30", codec2="VP8",
-    #                   res3="_large_", fps3="30", codec3="H264",
-    #                   res4="_large_", fps4="30", codec4="VP8")
-    # analyzeTestCustom(args.folderpath, bitrate="6000",
-    #                   res1="_small_", fps1="30", codec1="H264",
-    #                   res2="_small_", fps2="30", codec2="VP8",
-    #                   res3="_large_", fps3="30", codec3="H264",
-    #                   res4="_large_", fps4="30", codec4="VP8")
+    ################################################## # VP8 vs H264 tests
+    analyzeTestCustom(args.folderpath, bitrate="300",
+                      res1="_small_", fps1="30", codec1="H264",
+                      res2="_small_", fps2="30", codec2="VP8",
+                      res3="_large_", fps3="30", codec3="H264",
+                      res4="_large_", fps4="30", codec4="VP8")
+    analyzeTestCustom(args.folderpath, bitrate="600",
+                      res1="_small_", fps1="30", codec1="H264",
+                      res2="_small_", fps2="30", codec2="VP8",
+                      res3="_large_", fps3="30", codec3="H264",
+                      res4="_large_", fps4="30", codec4="VP8")
+    analyzeTestCustom(args.folderpath, bitrate="900",
+                      res1="_small_", fps1="30", codec1="H264",
+                      res2="_small_", fps2="30", codec2="VP8",
+                      res3="_large_", fps3="30", codec3="H264",
+                      res4="_large_", fps4="30", codec4="VP8")
+    analyzeTestCustom(args.folderpath, bitrate="1300",
+                      res1="_small_", fps1="30", codec1="H264",
+                      res2="_small_", fps2="30", codec2="VP8",
+                      res3="_large_", fps3="30", codec3="H264",
+                      res4="_large_", fps4="30", codec4="VP8")
+    analyzeTestCustom(args.folderpath, bitrate="1800",
+                      res1="_small_", fps1="30", codec1="H264",
+                      res2="_small_", fps2="30", codec2="VP8",
+                      res3="_large_", fps3="30", codec3="H264",
+                      res4="_large_", fps4="30", codec4="VP8")
+    analyzeTestCustom(args.folderpath, bitrate="2700",
+                      res1="_small_", fps1="30", codec1="H264",
+                      res2="_small_", fps2="30", codec2="VP8",
+                      res3="_large_", fps3="30", codec3="H264",
+                      res4="_large_", fps4="30", codec4="VP8")
+    analyzeTestCustom(args.folderpath, bitrate="4000",
+                      res1="_small_", fps1="30", codec1="H264",
+                      res2="_small_", fps2="30", codec2="VP8",
+                      res3="_large_", fps3="30", codec3="H264",
+                      res4="_large_", fps4="30", codec4="VP8")
+    analyzeTestCustom(args.folderpath, bitrate="4750",
+                      res1="_small_", fps1="30", codec1="H264",
+                      res2="_small_", fps2="30", codec2="VP8",
+                      res3="_large_", fps3="30", codec3="H264")
+    analyzeTestCustom(args.folderpath, bitrate="6000",
+                      res1="_small_", fps1="30", codec1="H264",
+                      res2="_small_", fps2="30", codec2="VP8",
+                      res3="_large_", fps3="30", codec3="H264",
+                      res4="_large_", fps4="30", codec4="VP8")
 
-    # 15fps vs 30fps H264
-    analyzeTestCustom(args.folderpath, bitrate="600", res1="_small_", fps1="15", codec1="H264",
-                      res2="_small_", fps2="30", codec2="H264", res3="_large_", fps3="15", codec3="H264",
-                      res4="_large_", fps4="30", codec4="H264")
-    analyzeTestCustom(args.folderpath, bitrate="900", res1="_small_", fps1="15", codec1="H264",
-                      res2="_small_", fps2="30", codec2="H264", res3="_large_", fps3="15", codec3="H264",
-                      res4="_large_", fps4="30", codec4="H264")
-    analyzeTestCustom(args.folderpath, bitrate="1300", res1="_small_", fps1="15", codec1="H264",
-                      res2="_small_", fps2="30", codec2="H264", res3="_large_", fps3="15", codec3="H264",
-                      res4="_large_", fps4="30", codec4="H264")
-    analyzeTestCustom(args.folderpath, bitrate="1800", res1="_small_", fps1="15", codec1="H264",
-                      res2="_small_", fps2="30", codec2="H264", res3="_large_", fps3="15", codec3="H264",
-                      res4="_large_", fps4="30", codec4="H264")
-    analyzeTestCustom(args.folderpath, bitrate="2700", res1="_small_", fps1="15", codec1="H264",
-                      res2="_small_", fps2="30", codec2="H264", res3="_large_", fps3="15", codec3="H264",
-                      res4="_large_", fps4="30", codec4="H264")
-    analyzeTestCustom(args.folderpath, bitrate="4000", res1="_small_", fps1="15", codec1="H264",
-                      res2="_small_", fps2="30", codec2="H264", res3="_large_", fps3="15", codec3="H264",
-                      res4="_large_", fps4="30", codec4="H264")
-    analyzeTestCustom(args.folderpath, bitrate="6000", res1="_small_", fps1="15", codec1="H264",
-                      res2="_small_", fps2="30", codec2="H264", res3="_large_", fps3="15", codec3="H264",
-                      res4="_large_", fps4="30", codec4="H264")
+    ##################################################  15fps vs 30fps H264
+    # analyzeTestCustom(args.folderpath, bitrate="600", res1="_small_", fps1="15", codec1="H264",
+    #                   res2="_small_", fps2="30", codec2="H264", res3="_large_", fps3="15", codec3="H264",
+    #                   res4="_large_", fps4="30", codec4="H264")
+    # analyzeTestCustom(args.folderpath, bitrate="900", res1="_small_", fps1="15", codec1="H264",
+    #                   res2="_small_", fps2="30", codec2="H264", res3="_large_", fps3="15", codec3="H264",
+    #                   res4="_large_", fps4="30", codec4="H264")
+    # analyzeTestCustom(args.folderpath, bitrate="1300", res1="_small_", fps1="15", codec1="H264",
+    #                   res2="_small_", fps2="30", codec2="H264", res3="_large_", fps3="15", codec3="H264",
+    #                   res4="_large_", fps4="30", codec4="H264")
+    # analyzeTestCustom(args.folderpath, bitrate="1800", res1="_small_", fps1="15", codec1="H264",
+    #                   res2="_small_", fps2="30", codec2="H264", res3="_large_", fps3="15", codec3="H264",
+    #                   res4="_large_", fps4="30", codec4="H264")
+    # analyzeTestCustom(args.folderpath, bitrate="2700", res1="_small_", fps1="15", codec1="H264",
+    #                   res2="_small_", fps2="30", codec2="H264", res3="_large_", fps3="15", codec3="H264",
+    #                   res4="_large_", fps4="30", codec4="H264")
+    # analyzeTestCustom(args.folderpath, bitrate="4000", res1="_small_", fps1="15", codec1="H264",
+    #                   res2="_small_", fps2="30", codec2="H264", res3="_large_", fps3="15", codec3="H264",
+    #                   res4="_large_", fps4="30", codec4="H264")
+    # analyzeTestCustom(args.folderpath, bitrate="6000", res1="_small_", fps1="15", codec1="H264",
+    #                   res2="_small_", fps2="30", codec2="H264", res3="_large_", fps3="15", codec3="H264",
+    #                   res4="_large_", fps4="30", codec4="H264")
